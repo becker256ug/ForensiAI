@@ -1,7 +1,6 @@
 import { useState } from "react";
 
 function App() {
-
   const [evidence, setEvidence] = useState("");
   const [analysis, setAnalysis] = useState("");
   const [iocs, setIocs] = useState([]);
@@ -13,13 +12,8 @@ function App() {
   // =========================
   // IOC CLASSIFICATION
   // =========================
-
   const classifyIOC = (ioc) => {
-
-    if (
-      /^\d+\.\d+\.\d+\.\d+$/.test(ioc)
-    ) {
-
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(ioc)) {
       if (
         ioc.startsWith("192.168") ||
         ioc.startsWith("10.") ||
@@ -27,28 +21,14 @@ function App() {
       ) {
         return "Internal IP";
       }
-
       return "External IP";
     }
 
-    if (ioc.endsWith(".exe")) {
-      return "Executable";
-    }
+    if (ioc.endsWith(".exe")) return "Executable";
 
-    if (
-      ioc.endsWith(".pdf") ||
-      ioc.endsWith(".docx") ||
-      ioc.endsWith(".csv") ||
-      ioc.endsWith(".txt")
-    ) {
-      return "Document";
-    }
+    if (ioc.match(/\.(pdf|docx|csv|txt)$/)) return "Document";
 
-    if (
-      /^[A-Fa-f0-9]{32,64}$/.test(ioc)
-    ) {
-      return "Hash";
-    }
+    if (/^[A-Fa-f0-9]{32,64}$/.test(ioc)) return "Hash";
 
     return "Unknown";
   };
@@ -56,50 +36,32 @@ function App() {
   // =========================
   // IOC EXTRACTION
   // =========================
+  const extractIOCs = (text = "") => {
+    if (typeof text !== "string") return;
 
-  const extractIOCs = (text) => {
-
-    const ipRegex =
-      /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
-
-    const hashRegex =
-      /\b[A-Fa-f0-9]{32,64}\b/g;
-
-    const domainRegex =
-      /\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b/g;
-
-    const fileRegex =
-      /\b[\w,\s-]+\.(txt|pdf|docx|csv|json|exe|zip)\b/g;
+    const ipRegex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+    const hashRegex = /\b[A-Fa-f0-9]{32,64}\b/g;
+    const domainRegex = /\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b/g;
+    const fileRegex = /\b[\w,\s-]+\.(txt|pdf|docx|csv|json|exe|zip)\b/g;
 
     const ips = text.match(ipRegex) || [];
     const hashes = text.match(hashRegex) || [];
     const domains = text.match(domainRegex) || [];
     const files = text.match(fileRegex) || [];
 
-    const combined = [
-      ...new Set([
-        ...ips,
-        ...hashes,
-        ...domains,
-        ...files
-      ])
-    ];
-
-    setIocs(combined);
+    setIocs([...new Set([...ips, ...hashes, ...domains, ...files])]);
   };
 
   // =========================
   // TIMELINE EXTRACTION
   // =========================
-
-  const extractTimeline = (text) => {
+  const extractTimeline = (text = "") => {
+    if (typeof text !== "string") return;
 
     const lines = text.split("\n");
-
-    const timelineEvents = [];
+    const events = [];
 
     lines.forEach((line) => {
-
       if (
         line.toLowerCase().includes("login") ||
         line.toLowerCase().includes("failed") ||
@@ -108,338 +70,186 @@ function App() {
         line.toLowerCase().includes("malware") ||
         line.toLowerCase().includes("access")
       ) {
-        timelineEvents.push(line);
+        events.push(line);
       }
-
     });
 
-    setTimeline(timelineEvents);
+    setTimeline(events);
   };
 
   // =========================
   // ANALYZE EVIDENCE
   // =========================
-
   const analyzeEvidence = async () => {
-
     setLoading(true);
 
     try {
-
       const formData = new FormData();
-
       formData.append("evidence", evidence);
 
-      if (file) {
-        formData.append("file", file);
-      }
+      if (file) formData.append("file", file);
 
+      // ✅ FIXED URL (IMPORTANT)
       const response = await fetch(
-        "http://https://forensiai-backend.onrender.com/analyze",
+        "https://forensiai-backend.onrender.com/analyze",
         {
           method: "POST",
           body: formData,
         }
       );
 
-      const data = await response.json();
+      const text = await response.text();
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Invalid JSON response from backend");
+      }
+
+      if (!response.ok) {
+        throw new Error(data?.detail || "Server error");
+      }
 
       const result =
-        typeof data.analysis === "string"
-          ? data.analysis
-          : "";
+        typeof data.analysis === "string" ? data.analysis : "";
 
       setAnalysis(result);
 
       if (result) {
-
         extractIOCs(result);
-
         extractTimeline(result);
 
         // =========================
         // SEVERITY ENGINE
         // =========================
+        const lower = result.toLowerCase();
 
         if (
-          result.toLowerCase().includes("malware") ||
-          result.toLowerCase().includes("privilege escalation") ||
-          result.toLowerCase().includes("data exfiltration")
+          lower.includes("malware") ||
+          lower.includes("privilege escalation") ||
+          lower.includes("data exfiltration")
         ) {
           setSeverity("CRITICAL");
-        }
-
-        else if (
-          result.toLowerCase().includes("failed login") ||
-          result.toLowerCase().includes("brute force")
+        } else if (
+          lower.includes("failed login") ||
+          lower.includes("brute force")
         ) {
           setSeverity("HIGH");
-        }
-
-        else {
+        } else {
           setSeverity("MEDIUM");
         }
-
       }
-
     } catch (error) {
-
-      console.error(error);
-
+      console.error("Analysis error:", error);
       setAnalysis("Error analyzing evidence.");
-
     }
 
     setLoading(false);
   };
 
-  // =========================
-  // STATISTICS
-  // =========================
-
-  const ipCount = iocs.filter(
-    (ioc) =>
-      /^\d+\.\d+\.\d+\.\d+$/.test(ioc)
+  const ipCount = iocs.filter((ioc) =>
+    /^\d+\.\d+\.\d+\.\d+$/.test(ioc)
   ).length;
 
   return (
-
     <div className="min-h-screen bg-slate-950 text-white p-8">
-
       <div className="max-w-6xl mx-auto">
 
         {/* HEADER */}
-
         <div className="mb-10">
-
           <h1 className="text-5xl font-bold text-cyan-400 mb-3">
             ForensiAI
           </h1>
-
           <p className="text-slate-400 text-lg">
             Autonomous Cybercrime Evidence Investigation Agent
           </p>
-
         </div>
 
-        {/* EVIDENCE INPUT */}
-
-        <div className="bg-slate-900 border border-cyan-500/20 rounded-2xl p-6 shadow-2xl">
-
-          <h2 className="text-2xl font-semibold mb-4 text-cyan-300">
-            Submit Digital Evidence
-          </h2>
-
+        {/* INPUT */}
+        <div className="bg-slate-900 border border-cyan-500/20 rounded-2xl p-6">
           <input
             type="file"
             accept=".txt,.log,.json,.csv,.pdf"
             onChange={(e) => setFile(e.target.files[0])}
-            className="mb-4 block w-full text-sm text-slate-300"
+            className="mb-4 w-full text-sm text-slate-300"
           />
 
           <textarea
             rows="10"
             value={evidence}
             onChange={(e) => setEvidence(e.target.value)}
-            placeholder="Paste logs, CSV data, alerts, malware traces, firewall evidence, or suspicious activity..."
-            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            placeholder="Paste evidence..."
+            className="w-full bg-slate-950 p-4 rounded-xl border border-slate-700"
           />
 
-          <div className="flex gap-4 mt-6">
-
-            <button
-              onClick={analyzeEvidence}
-              className="bg-cyan-500 hover:bg-cyan-400 text-black font-bold px-8 py-4 rounded-xl transition-all"
-            >
-              {loading ? "Analyzing..." : "Analyze Evidence"}
-            </button>
-
-            <button
-              onClick={() => {
-
-                const blob = new Blob(
-                  [analysis],
-                  { type: "text/plain" }
-                );
-
-                const url =
-                  window.URL.createObjectURL(blob);
-
-                const a =
-                  document.createElement("a");
-
-                a.href = url;
-
-                a.download =
-                  "ForensiAI_Report.txt";
-
-                a.click();
-              }}
-              className="bg-green-500 hover:bg-green-400 text-black font-bold px-8 py-4 rounded-xl transition-all"
-            >
-              Export Report
-            </button>
-
-          </div>
-
+          <button
+            onClick={analyzeEvidence}
+            className="mt-6 bg-cyan-500 px-8 py-3 rounded-xl text-black font-bold"
+          >
+            {loading ? "Analyzing..." : "Analyze Evidence"}
+          </button>
         </div>
 
         {/* RESULTS */}
-
         {analysis && (
-
           <div className="mt-10 space-y-6">
 
-            {/* DASHBOARD */}
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-
-              <div className="bg-slate-900 p-5 rounded-2xl border border-red-500/20">
-
-                <p className="text-slate-400 text-sm">
-                  Threat Level
-                </p>
-
-                <h3 className="text-3xl font-bold text-red-400">
-                  {severity}
-                </h3>
-
+            {/* STATS */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-slate-900 p-4 rounded-xl">
+                Threat: {severity}
               </div>
-
-              <div className="bg-slate-900 p-5 rounded-2xl border border-cyan-500/20">
-
-                <p className="text-slate-400 text-sm">
-                  Total IOCs
-                </p>
-
-                <h3 className="text-3xl font-bold text-cyan-400">
-                  {iocs.length}
-                </h3>
-
+              <div className="bg-slate-900 p-4 rounded-xl">
+                IOCs: {iocs.length}
               </div>
-
-              <div className="bg-slate-900 p-5 rounded-2xl border border-yellow-500/20">
-
-                <p className="text-slate-400 text-sm">
-                  IP Addresses
-                </p>
-
-                <h3 className="text-3xl font-bold text-yellow-300">
-                  {ipCount}
-                </h3>
-
+              <div className="bg-slate-900 p-4 rounded-xl">
+                IPs: {ipCount}
               </div>
-
-              <div className="bg-slate-900 p-5 rounded-2xl border border-green-500/20">
-
-                <p className="text-slate-400 text-sm">
-                  Timeline Events
-                </p>
-
-                <h3 className="text-3xl font-bold text-green-400">
-                  {timeline.length}
-                </h3>
-
+              <div className="bg-slate-900 p-4 rounded-xl">
+                Timeline: {timeline.length}
               </div>
-
             </div>
 
             {/* TIMELINE */}
-
-            <div className="bg-slate-900 border border-cyan-500/20 rounded-2xl p-6">
-
-              <h2 className="text-2xl font-bold text-cyan-400 mb-6">
-                Attack Timeline Reconstruction
+            <div className="bg-slate-900 p-6 rounded-xl">
+              <h2 className="text-cyan-400 text-xl mb-4">
+                Timeline
               </h2>
-
-              <div className="space-y-4">
-
-                {timeline.map((event, index) => (
-
-                  <div
-                    key={index}
-                    className="flex items-start gap-4"
-                  >
-
-                    <div className="w-4 h-4 mt-2 rounded-full bg-cyan-400"></div>
-
-                    <div className="bg-slate-950 border border-slate-700 rounded-xl p-4 w-full text-slate-300">
-                      {event}
-                    </div>
-
-                  </div>
-
-                ))}
-
-              </div>
-
+              {timeline.map((t, i) => (
+                <p key={i} className="text-slate-300 mb-2">
+                  • {t}
+                </p>
+              ))}
             </div>
 
-            {/* IOC PANEL */}
-
-            <div className="bg-slate-900 border border-red-500/20 rounded-2xl p-6">
-
-              <h2 className="text-2xl font-bold text-red-400 mb-4">
-                Indicators of Compromise (IOCs)
+            {/* IOCs */}
+            <div className="bg-slate-900 p-6 rounded-xl">
+              <h2 className="text-red-400 text-xl mb-4">
+                IOCs
               </h2>
-
-              {iocs.length === 0 ? (
-
-                <p className="text-slate-400">
-                  No IOCs detected.
-                </p>
-
-              ) : (
-
-                <div className="flex flex-wrap gap-3">
-
-                  {iocs.map((ioc, index) => (
-
-                    <div
-                      key={index}
-                      className="bg-slate-950 border border-red-500/30 px-4 py-3 rounded-xl text-red-300 text-sm"
-                    >
-
-                      <p className="font-bold">
-                        {ioc}
-                      </p>
-
-                      <p className="text-xs text-slate-400 mt-1">
-                        {classifyIOC(ioc)}
-                      </p>
-
-                    </div>
-
-                  ))}
-
+              {iocs.map((ioc, i) => (
+                <div key={i} className="mb-2">
+                  {ioc} — {classifyIOC(ioc)}
                 </div>
-
-              )}
-
+              ))}
             </div>
 
             {/* REPORT */}
-
-            <div className="bg-slate-900 border border-cyan-500/20 rounded-2xl p-6 shadow-2xl">
-
-              <h2 className="text-3xl font-bold mb-6 text-cyan-400">
-                Investigation Report
+            <div className="bg-slate-900 p-6 rounded-xl">
+              <h2 className="text-cyan-400 text-xl mb-4">
+                Report
               </h2>
-
-              <div className="whitespace-pre-wrap text-slate-300 leading-8 overflow-auto max-h-[700px]">
+              <pre className="whitespace-pre-wrap text-slate-300">
                 {analysis}
-              </div>
-
+              </pre>
             </div>
 
           </div>
-
         )}
 
       </div>
-
     </div>
-
   );
 }
 
