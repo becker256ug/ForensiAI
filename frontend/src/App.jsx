@@ -1,11 +1,26 @@
 import { useState } from "react";
 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts";
+
 function App() {
 
   const [evidence, setEvidence] = useState("");
   const [analysis, setAnalysis] = useState("");
   const [iocs, setIocs] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [ipChartData, setIpChartData] = useState([]);
+  const [attackChartData, setAttackChartData] = useState([]);
   const [severity, setSeverity] = useState("LOW");
   const [loading, setLoading] = useState(false);
   const [file, setFile] = useState(null);
@@ -16,9 +31,7 @@ function App() {
 
   const classifyIOC = (ioc) => {
 
-    if (
-      /^\d+\.\d+\.\d+\.\d+$/.test(ioc)
-    ) {
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(ioc)) {
 
       if (
         ioc.startsWith("192.168") ||
@@ -44,9 +57,7 @@ function App() {
       return "Document";
     }
 
-    if (
-      /^[A-Fa-f0-9]{32,64}$/.test(ioc)
-    ) {
+    if (/^[A-Fa-f0-9]{32,64}$/.test(ioc)) {
       return "Hash";
     }
 
@@ -100,13 +111,15 @@ function App() {
 
     lines.forEach((line) => {
 
+      const lower = line.toLowerCase();
+
       if (
-        line.toLowerCase().includes("login") ||
-        line.toLowerCase().includes("failed") ||
-        line.toLowerCase().includes("attack") ||
-        line.toLowerCase().includes("traffic") ||
-        line.toLowerCase().includes("malware") ||
-        line.toLowerCase().includes("access")
+        lower.includes("login") ||
+        lower.includes("failed") ||
+        lower.includes("attack") ||
+        lower.includes("traffic") ||
+        lower.includes("malware") ||
+        lower.includes("access")
       ) {
         timelineEvents.push(line);
       }
@@ -114,6 +127,71 @@ function App() {
     });
 
     setTimeline(timelineEvents);
+  };
+
+  // =========================
+  // IP CHART
+  // =========================
+
+  const generateIPChart = (text) => {
+
+    const ipRegex =
+      /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+
+    const ips = text.match(ipRegex) || [];
+
+    const frequency = {};
+
+    ips.forEach((ip) => {
+
+      frequency[ip] =
+        (frequency[ip] || 0) + 1;
+
+    });
+
+    const chartData = Object.keys(frequency)
+      .map((ip) => ({
+        ip,
+        count: frequency[ip],
+      }))
+      .slice(0, 10);
+
+    setIpChartData(chartData);
+  };
+
+  // =========================
+  // ATTACK CHART
+  // =========================
+
+  const generateAttackChart = (text) => {
+
+    const categories = [
+      "Brute_Force",
+      "DDoS_Attempt",
+      "Malware",
+      "Phishing",
+      "Unauthorized_Access",
+      "Suspicious",
+    ];
+
+    const results = [];
+
+    categories.forEach((category) => {
+
+      const regex =
+        new RegExp(category, "gi");
+
+      const matches =
+        text.match(regex);
+
+      results.push({
+        name: category,
+        value: matches ? matches.length : 0,
+      });
+
+    });
+
+    setAttackChartData(results);
   };
 
   // =========================
@@ -157,21 +235,28 @@ function App() {
 
         extractTimeline(result);
 
+        generateIPChart(result);
+
+        generateAttackChart(result);
+
         // =========================
         // SEVERITY ENGINE
         // =========================
 
+        const lower =
+          result.toLowerCase();
+
         if (
-          result.toLowerCase().includes("malware") ||
-          result.toLowerCase().includes("privilege escalation") ||
-          result.toLowerCase().includes("data exfiltration")
+          lower.includes("malware") ||
+          lower.includes("privilege escalation") ||
+          lower.includes("data exfiltration")
         ) {
           setSeverity("CRITICAL");
         }
 
         else if (
-          result.toLowerCase().includes("failed login") ||
-          result.toLowerCase().includes("brute force")
+          lower.includes("failed login") ||
+          lower.includes("brute force")
         ) {
           setSeverity("HIGH");
         }
@@ -206,7 +291,7 @@ function App() {
 
     <div className="min-h-screen bg-slate-950 text-white p-8">
 
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
 
         {/* HEADER */}
 
@@ -339,6 +424,89 @@ function App() {
                 <h3 className="text-3xl font-bold text-green-400">
                   {timeline.length}
                 </h3>
+
+              </div>
+
+            </div>
+
+            {/* CHARTS */}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+              {/* BAR CHART */}
+
+              <div className="bg-slate-900 border border-cyan-500/20 rounded-2xl p-6">
+
+                <h2 className="text-2xl font-bold text-cyan-400 mb-6">
+                  Suspicious IP Frequency
+                </h2>
+
+                <ResponsiveContainer width="100%" height={300}>
+
+                  <BarChart data={ipChartData}>
+
+                    <XAxis dataKey="ip" />
+                    <YAxis />
+                    <Tooltip />
+
+                    <Bar
+                      dataKey="count"
+                      fill="#06b6d4"
+                    />
+
+                  </BarChart>
+
+                </ResponsiveContainer>
+
+              </div>
+
+              {/* PIE CHART */}
+
+              <div className="bg-slate-900 border border-red-500/20 rounded-2xl p-6">
+
+                <h2 className="text-2xl font-bold text-red-400 mb-6">
+                  Attack Categories
+                </h2>
+
+                <ResponsiveContainer width="100%" height={300}>
+
+                  <PieChart>
+
+                    <Pie
+                      data={attackChartData}
+                      dataKey="value"
+                      nameKey="name"
+                      outerRadius={100}
+                      label
+                    >
+
+                      {attackChartData.map((entry, index) => (
+
+                        <Cell
+                          key={index}
+                          fill={
+                            [
+                              "#06b6d4",
+                              "#ef4444",
+                              "#eab308",
+                              "#22c55e",
+                              "#8b5cf6",
+                              "#f97316",
+                            ][index % 6]
+                          }
+                        />
+
+                      ))}
+
+                    </Pie>
+
+                    <Tooltip />
+
+                    <Legend />
+
+                  </PieChart>
+
+                </ResponsiveContainer>
 
               </div>
 
